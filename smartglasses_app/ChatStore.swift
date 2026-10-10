@@ -56,13 +56,38 @@ final class ChatStore {
         }
     }
 
+    // ウェイクワードの後がこれだけなら Pi をシャットダウン ("shut down" は normalize で "shutdown" になる)
+    static let shutdownCommands: Set<String> = ["halt", "stop", "shutdown", "poweroff"]
+
     // ウェイクワード検出 → 撮影して、聞き取った文と一緒に送る
     func handleWake(transcript: String) async {
+        if isShutdownCommand(transcript) {
+            await shutdownGlasses()
+            return
+        }
         guard !isResponding, !isCapturing else { return }
         await captureFromGlasses()
         guard pendingImage != nil else { return }
         draft = transcript
         send()
+    }
+
+    func shutdownGlasses() async {
+        let host = UserDefaults.standard.string(forKey: SettingsKey.glassesHost) ?? SettingsKey.defaultGlassesHost
+        do {
+            try await GlassesClient.shutdown(host: host)
+            messages.append(ChatMessage(role: .assistant, text: "Shutting down the glasses."))
+        } catch {
+            errorMessage = "Glasses: \(error.localizedDescription)"
+        }
+    }
+
+    // "Hey glasses, halt." → true / "Hey glasses, what does this stop sign say?" → false
+    private func isShutdownCommand(_ transcript: String) -> Bool {
+        let wakeWord = UserDefaults.standard.string(forKey: SettingsKey.wakeWord) ?? SettingsKey.defaultWakeWord
+        let text = WakeWordListener.normalize(transcript)
+        guard let range = text.range(of: WakeWordListener.normalize(wakeWord)) else { return false }
+        return Self.shutdownCommands.contains(String(text[range.upperBound...]))
     }
 
     func send() {
@@ -129,6 +154,17 @@ enum GlassesClient {
             throw URLError(.badServerResponse)
         }
         return data
+    }
+
+    // Pi 側 /api/shutdown → 応答を返してから sudo halt
+    static func shutdown(host: String) async throws {
+        guard let url = URL(string: "http://\(host)/api/shutdown") else { throw URLError(.badURL) }
+        var request = URLRequest(url: url, timeoutInterval: 10)
+        request.httpMethod = "POST"
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
     }
 }
 

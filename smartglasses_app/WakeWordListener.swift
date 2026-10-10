@@ -87,8 +87,10 @@ final class WakeWordListener {
             if paused || now.timeIntervalSince(taskStarted) > Self.maxTaskSeconds {
                 let sentence = transcript
                 startRecognition(wakeWord: wakeWord)
-                if paused, Self.normalize(sentence).contains(Self.normalize(wakeWord)) {
-                    await onWake(sentence)
+                if paused {
+                    let isWake = Self.normalize(sentence).contains(Self.normalize(wakeWord))
+                    print("[speech] heard: \"\(sentence)\"\(isWake ? " → WAKE" : "")")
+                    if isWake { await onWake(sentence) }
                 }
             }
         }
@@ -124,11 +126,14 @@ final class WakeWordListener {
                 }
                 // 無音が続くとタスクがエラーで終わる → 少し待って作り直す
                 if ended {
+                    var delay = 1.0
                     if let error = error as NSError?, !Self.isNoSpeech(error) {
-                        self.status = "Speech: \(error.localizedDescription)"
-                        print("[speech] \(error)")
+                        let message = "Speech: \(error.localizedDescription)"
+                        if message != self.status { print("[speech] \(error)") }   // 同じエラーは 1 回だけ出す
+                        self.status = message
+                        delay = 5   // 設定の問題 (音声入力オフなど) は直るまで待つ
                     }
-                    self.retryAfter = Date().addingTimeInterval(1)
+                    self.retryAfter = Date().addingTimeInterval(delay)
                     self.endRecognition()
                 }
             }
