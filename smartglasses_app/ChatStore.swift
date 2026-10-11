@@ -44,7 +44,7 @@ final class ChatStore {
         !isResponding && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || pendingImage != nil)
     }
 
-    // メガネのカメラで撮影して、次のメッセージに添付する
+    // Take a photo with the glasses camera and attach it to the next message
     func captureFromGlasses() async {
         isCapturing = true
         defer { isCapturing = false }
@@ -56,13 +56,38 @@ final class ChatStore {
         }
     }
 
-    // ウェイクワード検出 → 撮影して、聞き取った文と一緒に送る
+    // If this is all that follows the wake word, shut down the Pi ("shut down" becomes "shutdown" via normalize)
+    static let shutdownCommands: Set<String> = ["halt", "stop", "shutdown", "poweroff"]
+
+    // Wake word detected -> take a photo and send it with the transcribed sentence
     func handleWake(transcript: String) async {
+        if isShutdownCommand(transcript) {
+            await shutdownGlasses()
+            return
+        }
         guard !isResponding, !isCapturing else { return }
         await captureFromGlasses()
         guard pendingImage != nil else { return }
         draft = transcript
         send()
+    }
+
+    func shutdownGlasses() async {
+        let host = UserDefaults.standard.string(forKey: SettingsKey.glassesHost) ?? SettingsKey.defaultGlassesHost
+        do {
+            try await GlassesClient.shutdown(host: host)
+            messages.append(ChatMessage(role: .assistant, text: "Shutting down the glasses."))
+        } catch {
+            errorMessage = "Glasses: \(error.localizedDescription)"
+        }
+    }
+
+    // "Hey glasses, halt." → true / "Hey glasses, what does this stop sign say?" → false
+    private func isShutdownCommand(_ transcript: String) -> Bool {
+        let wakeWord = UserDefaults.standard.string(forKey: SettingsKey.wakeWord) ?? SettingsKey.defaultWakeWord
+        let text = WakeWordListener.normalize(transcript)
+        guard let range = text.range(of: WakeWordListener.normalize(wakeWord)) else { return false }
+        return Self.shutdownCommands.contains(String(text[range.upperBound...]))
     }
 
     func send() {
@@ -119,7 +144,7 @@ final class ChatStore {
 }
 
 enum GlassesClient {
-    // Pi 側 app_shoot.py の /api/capture が JPEG を返す
+    // /api/capture in app_shoot.py on the Pi returns a JPEG
     static func capture(host: String) async throws -> Data {
         guard let url = URL(string: "http://\(host)/api/capture") else { throw URLError(.badURL) }
         var request = URLRequest(url: url, timeoutInterval: 10)
@@ -129,6 +154,17 @@ enum GlassesClient {
             throw URLError(.badServerResponse)
         }
         return data
+    }
+
+    // /api/shutdown on the Pi -> replies first, then runs sudo halt
+    static func shutdown(host: String) async throws {
+        guard let url = URL(string: "http://\(host)/api/shutdown") else { throw URLError(.badURL) }
+        var request = URLRequest(url: url, timeoutInterval: 10)
+        request.httpMethod = "POST"
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
     }
 }
 
