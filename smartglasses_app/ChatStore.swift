@@ -44,7 +44,7 @@ final class ChatStore {
         !isResponding && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || pendingImage != nil)
     }
 
-    // メガネのカメラで撮影して、次のメッセージに添付する
+    // Take a photo with the glasses camera and attach it to the next message
     func captureFromGlasses() async {
         isCapturing = true
         defer { isCapturing = false }
@@ -56,10 +56,10 @@ final class ChatStore {
         }
     }
 
-    // ウェイクワードの後がこれだけなら Pi をシャットダウン ("shut down" は normalize で "shutdown" になる)
+    // If this is all that follows the wake word, shut down the Pi ("shut down" becomes "shutdown" via normalize)
     static let shutdownCommands: Set<String> = ["halt", "stop", "shutdown", "poweroff"]
 
-    // ウェイクワード検出 → 撮影して、聞き取った文と一緒に送る
+    // Wake word detected -> take a photo and send it with the transcribed sentence
     func handleWake(transcript: String) async {
         if isShutdownCommand(transcript) {
             await shutdownGlasses()
@@ -144,7 +144,7 @@ final class ChatStore {
 }
 
 enum GlassesClient {
-    // Pi 側 app_shoot.py の /api/capture が JPEG を返す
+    // /api/capture in app_shoot.py on the Pi returns a JPEG
     static func capture(host: String) async throws -> Data {
         guard let url = URL(string: "http://\(host)/api/capture") else { throw URLError(.badURL) }
         var request = URLRequest(url: url, timeoutInterval: 10)
@@ -156,7 +156,7 @@ enum GlassesClient {
         return data
     }
 
-    // Pi 側 /api/shutdown → 応答を返してから sudo halt
+    // /api/shutdown on the Pi -> replies first, then runs sudo halt
     static func shutdown(host: String) async throws {
         guard let url = URL(string: "http://\(host)/api/shutdown") else { throw URLError(.badURL) }
         var request = URLRequest(url: url, timeoutInterval: 10)

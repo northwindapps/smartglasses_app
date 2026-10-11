@@ -7,7 +7,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
-    // プロトタイプなので UserDefaults に保存 (本番では Keychain に移す)
+    // Stored in UserDefaults since this is a prototype (move to Keychain for production)
     @AppStorage(SettingsKey.apiKey) private var apiKey = ""
     @AppStorage(SettingsKey.model) private var model = SettingsKey.defaultModel
     @AppStorage(SettingsKey.glassesHost) private var glassesHost = SettingsKey.defaultGlassesHost

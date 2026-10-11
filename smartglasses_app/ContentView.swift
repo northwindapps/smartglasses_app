@@ -34,7 +34,7 @@ struct ContentView: View {
                     }
                 }
                 .sheet(isPresented: $showSettings) { SettingsView() }
-                // アプリが前面にある間だけメガネのマイクを聞く
+                // Listen to the glasses mic only while the app is in the foreground
                 .onChange(of: scenePhase, initial: true) { updateListening() }
                 .onChange(of: listeningEnabled) { updateListening() }
                 .alert("Error", isPresented: Binding(
@@ -203,7 +203,7 @@ private struct MessageRow: View {
                 if message.text.isEmpty && isTyping {
                     ProgressView()
                 } else {
-                    Text(LocalizedStringKey(message.text))   // **太字** などの簡単な Markdown を表示
+                    Text(LocalizedStringKey(message.text))   // Render simple Markdown such as **bold**
                         .textSelection(.enabled)
                 }
             }
