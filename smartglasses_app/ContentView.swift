@@ -111,19 +111,24 @@ struct ContentView: View {
             listeningStatus
 
             if let data = store.pendingImage, let image = Image(jpegData: data) {
-                image
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: 72, height: 72)
-                    .clipShape(.rect(cornerRadius: 12))
-                    .overlay(alignment: .topTrailing) {
-                        Button("Remove", systemImage: "xmark.circle.fill") { store.pendingImage = nil }
-                            .labelStyle(.iconOnly)
-                            .buttonStyle(.plain)
-                            .symbolRenderingMode(.palette)
-                            .foregroundStyle(.white, .black.opacity(0.6))
-                            .offset(x: 6, y: -6)
+                HStack(alignment: .top, spacing: 10) {
+                    image
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 72, height: 72)
+                        .clipShape(.rect(cornerRadius: 12))
+                        .overlay(alignment: .topTrailing) {
+                            Button("Remove", systemImage: "xmark.circle.fill") { store.pendingImage = nil }
+                                .labelStyle(.iconOnly)
+                                .buttonStyle(.plain)
+                                .symbolRenderingMode(.palette)
+                                .foregroundStyle(.white, .black.opacity(0.6))
+                                .offset(x: 6, y: -6)
+                        }
+                    if let text = store.pendingText {
+                        OCRText(text: text, lineLimit: 4)
                     }
+                }
             }
 
             HStack(alignment: .bottom, spacing: 10) {
@@ -189,6 +194,10 @@ private struct MessageRow: View {
                         .frame(maxWidth: 260)
                         .clipShape(.rect(cornerRadius: 16))
                 }
+                if let text = message.ocrText {
+                    OCRText(text: text, lineLimit: nil)
+                        .frame(maxWidth: 260, alignment: .leading)
+                }
                 Text(message.text)
                     .textSelection(.enabled)
                     .padding(.horizontal, 14)
@@ -209,6 +218,25 @@ private struct MessageRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+}
+
+// Text read from a photo by on-device OCR
+private struct OCRText: View {
+    let text: String
+    let lineLimit: Int?
+
+    var body: some View {
+        Label {
+            Text(text)
+                .lineLimit(lineLimit)
+                .textSelection(.enabled)
+        } icon: {
+            Image(systemName: "text.viewfinder")
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .accessibilityLabel("Text in photo: \(text)")
     }
 }
 

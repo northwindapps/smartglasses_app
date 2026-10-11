@@ -13,6 +13,7 @@ struct ChatMessage: Identifiable {
     let role: Role
     var text: String
     var imageData: Data?
+    var ocrText: String?
 }
 
 enum SettingsKey {
@@ -22,18 +23,23 @@ enum SettingsKey {
     static let wakeWord = "wake_word"
     static let listening = "listening"
     static let speechLocale = "speech_locale"
+    static let ocrLanguage = "ocr_language"
 
     static let defaultModel = "gpt-5-mini"
     static let defaultGlassesHost = "raspberrypi.local:5000"
     static let defaultWakeWord = "hey glasses"
     static let defaultSpeechLocale = "en-US"
+    static let defaultOCRLanguage = "en-US"
 }
 
 @Observable
 final class ChatStore {
     var messages: [ChatMessage] = []
     var draft = ""
-    var pendingImage: Data?
+    var pendingImage: Data? {
+        didSet { if pendingImage == nil { pendingText = nil } }   // Removing the photo also drops its OCR text
+    }
+    var pendingText: String?   // OCR result for pendingImage
     var isCapturing = false
     var isResponding = false
     var errorMessage: String?
@@ -44,32 +50,43 @@ final class ChatStore {
         !isResponding && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || pendingImage != nil)
     }
 
-    // Take a photo with the glasses camera and attach it to the next message
+    // Take a photo with the glasses camera, run OCR on it, and attach both to the next message
     func captureFromGlasses() async {
         isCapturing = true
         defer { isCapturing = false }
-        let host = UserDefaults.standard.string(forKey: SettingsKey.glassesHost) ?? SettingsKey.defaultGlassesHost
+        let defaults = UserDefaults.standard
+        let host = defaults.string(forKey: SettingsKey.glassesHost) ?? SettingsKey.defaultGlassesHost
+        let language = defaults.string(forKey: SettingsKey.ocrLanguage) ?? SettingsKey.defaultOCRLanguage
+        let image: Data
         do {
-            pendingImage = try await GlassesClient.capture(host: host)
+            image = try await GlassesClient.capture(host: host)
         } catch {
             errorMessage = "Glasses: \(error.localizedDescription)"
+            return
+        }
+        pendingImage = image
+        pendingText = nil
+        // OCR failing shouldn't block the photo; the LLM can still read the image itself
+        do {
+            pendingText = try await TextRecognizer.recognize(image, language: language)
+        } catch {
+            print("[ocr] \(error)")
         }
     }
 
     // If this is all that follows the wake word, shut down the Pi ("shut down" becomes "shutdown" via normalize)
     static let shutdownCommands: Set<String> = ["halt", "stop", "shutdown", "poweroff"]
 
-    // Wake word detected -> take a photo and send it with the transcribed sentence
+    // Wake word detected -> take a photo and put it in the composer with the transcribed sentence (the user taps Send)
     func handleWake(transcript: String) async {
         if isShutdownCommand(transcript) {
             await shutdownGlasses()
             return
         }
-        guard !isResponding, !isCapturing else { return }
+        guard !isCapturing else { return }
         await captureFromGlasses()
         guard pendingImage != nil else { return }
         draft = transcript
-        send()
     }
 
     func shutdownGlasses() async {
@@ -95,7 +112,8 @@ final class ChatStore {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         messages.append(ChatMessage(role: .user,
                                     text: text.isEmpty ? "What do you see?" : text,
-                                    imageData: pendingImage))
+                                    imageData: pendingImage,
+                                    ocrText: pendingText))
         draft = ""
         pendingImage = nil
         respond()
@@ -185,7 +203,9 @@ enum OpenAIClient {
     You are an assistant for a user wearing camera smart glasses. \
     Images come from the glasses' camera (grayscale) and show what the user is looking at. \
     Messages may be speech transcripts that start with the wake word; if the user only said the wake word, \
-    briefly describe what is in the image. Answer concisely and conversationally.
+    briefly describe what is in the image. \
+    An image may come with on-device OCR text; use it to read text accurately, but trust the image if they disagree. \
+    Answer concisely and conversationally.
     """
 
     static func stream(apiKey: String, model: String, messages: [ChatMessage]) -> AsyncThrowingStream<String, Error> {
@@ -232,14 +252,16 @@ enum OpenAIClient {
         guard let image = message.imageData else {
             return ["role": message.role.rawValue, "content": message.text]
         }
-        return [
-            "role": message.role.rawValue,
-            "content": [
-                ["type": "text", "text": message.text],
-                ["type": "image_url",
-                 "image_url": ["url": "data:image/jpeg;base64,\(image.base64EncodedString())"]],
-            ],
+        var content: [[String: Any]] = [
+            ["type": "text", "text": message.text],
+            ["type": "image_url",
+             "image_url": ["url": "data:image/jpeg;base64,\(image.base64EncodedString())",
+                           "detail": "high"]],   // don't let OpenAI downscale (small text matters)
         ]
+        if let ocr = message.ocrText {
+            content.append(["type": "text", "text": "OCR text from the image (may contain errors):\n\(ocr)"])
+        }
+        return ["role": message.role.rawValue, "content": content]
     }
 
     private static func errorText(_ body: String) -> String {

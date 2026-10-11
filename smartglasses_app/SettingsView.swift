@@ -13,6 +13,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.glassesHost) private var glassesHost = SettingsKey.defaultGlassesHost
     @AppStorage(SettingsKey.wakeWord) private var wakeWord = SettingsKey.defaultWakeWord
     @AppStorage(SettingsKey.speechLocale) private var speechLocale = SettingsKey.defaultSpeechLocale
+    @AppStorage(SettingsKey.ocrLanguage) private var ocrLanguage = SettingsKey.defaultOCRLanguage
 
     var body: some View {
         NavigationStack {
@@ -38,6 +39,17 @@ struct SettingsView: View {
                     Text("Wake Word")
                 } footer: {
                     Text("Say this to the glasses to take a photo and ask about it. Speech is recognized on this device, nothing is sent until the wake word is heard. Changes apply after toggling listening off and on.")
+                }
+                Section {
+                    Picker("Language", selection: $ocrLanguage) {
+                        ForEach(TextRecognizer.languages, id: \.id) { language in
+                            Text(language.name).tag(language.id)
+                        }
+                    }
+                } header: {
+                    Text("Text Recognition (OCR)")
+                } footer: {
+                    Text("Text in each photo is read on this device and sent with the photo to help the AI read it accurately. English is also recognized alongside the selected language.")
                 }
             }
             .autocorrectionDisabled()
