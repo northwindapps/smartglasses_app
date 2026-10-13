@@ -37,6 +37,17 @@ struct ContentView: View {
                 // Listen to the glasses mic only while the app is in the foreground
                 .onChange(of: scenePhase, initial: true) { updateListening() }
                 .onChange(of: listeningEnabled) { updateListening() }
+                // "Hey glasses" alone -> pick an option by voice or by tapping
+                .confirmationDialog(wakeWord.capitalized, isPresented: $store.showActions, titleVisibility: .visible) {
+                    ForEach(GlassesAction.allCases) { action in
+                        Button(action.title, role: action == .shutdown ? .destructive : nil) {
+                            Task { await store.perform(action) }
+                        }
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("Say " + GlassesAction.allCases.map { "“\($0.spoken)”" }.joined(separator: ", ") + " or “cancel”, or tap an option.")
+                }
                 .alert("Error", isPresented: Binding(
                     get: { store.errorMessage != nil },
                     set: { if !$0 { store.errorMessage = nil } }
@@ -50,7 +61,7 @@ struct ContentView: View {
 
     private func updateListening() {
         if listeningEnabled && scenePhase == .active {
-            listener.start { transcript in await store.handleWake(transcript: transcript) }
+            listener.start { sentence, isWake in await store.handleHeard(sentence, isWake: isWake) }
         } else {
             listener.stop()
         }
@@ -82,7 +93,7 @@ struct ContentView: View {
                 if store.messages.isEmpty {
                     ContentUnavailableView("Look at something",
                                            systemImage: "eyeglasses",
-                                           description: Text("Tap the glasses button to take a photo, then ask about it."))
+                                           description: Text("Say “\(wakeWord)” for options, or tap the glasses button to take a photo."))
                         .padding(.top, 120)
                 }
                 LazyVStack(spacing: 16) {

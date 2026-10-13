@@ -33,9 +33,9 @@ final class WakeWordListener {
     private var lastChange = Date()
     private var retryAfter = Date()
 
-    func start(onWake: @escaping (String) async -> Void) {
+    func start(onSentence: @escaping (String, Bool) async -> Void) {
         guard task == nil else { return }
-        task = Task { await run(onWake: onWake) }
+        task = Task { await run(onSentence: onSentence) }
     }
 
     func stop() {
@@ -45,10 +45,10 @@ final class WakeWordListener {
         isConnected = false
     }
 
-    private func run(onWake: @escaping (String) async -> Void) async {
+    private func run(onSentence: @escaping (String, Bool) async -> Void) async {
         while !Task.isCancelled {
             do {
-                try await listen(onWake: onWake)
+                try await listen(onSentence: onSentence)
             } catch is CancellationError {
                 break
             } catch {
@@ -61,7 +61,7 @@ final class WakeWordListener {
         }
     }
 
-    private func listen(onWake: @escaping (String) async -> Void) async throws {
+    private func listen(onSentence: @escaping (String, Bool) async -> Void) async throws {
         let defaults = UserDefaults.standard
         let host = defaults.string(forKey: SettingsKey.glassesHost) ?? SettingsKey.defaultGlassesHost
         let wakeWord = defaults.string(forKey: SettingsKey.wakeWord) ?? SettingsKey.defaultWakeWord
@@ -90,7 +90,7 @@ final class WakeWordListener {
                 if paused {
                     let isWake = Self.normalize(sentence).contains(Self.normalize(wakeWord))
                     print("[speech] heard: \"\(sentence)\"\(isWake ? " → WAKE" : "")")
-                    if isWake { await onWake(sentence) }
+                    await onSentence(sentence, isWake)   // Non-wake sentences matter only while the action popup is open
                 }
             }
         }
@@ -104,7 +104,7 @@ final class WakeWordListener {
         request.requiresOnDeviceRecognition = true
         request.shouldReportPartialResults = true
         request.addsPunctuation = true
-        request.contextualStrings = [wakeWord]   // Make the wake word easier to recognize
+        request.contextualStrings = [wakeWord] + GlassesAction.speechHints   // Make the wake word and popup options easier to recognize
 
         generation += 1
         let current = generation
